@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Camera;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
@@ -25,7 +26,7 @@ import com.example.tukuselect.R;
 public class EditPicView extends View {
     private static final String TAG = "chenr";
 
-    private static final int MAX_ZOOM = 6;
+    private static final int MAX_ZOOM = 2;
 
     private final int ACTION_MODE_DRAG = 0;
     private final int ACTION_MODE_ZOOM = 1;
@@ -49,9 +50,8 @@ public class EditPicView extends View {
 
     private PointF mDownPointF = new PointF();
     private PointF mCirclePointF = new PointF();
-
+    private Matrix mMtrix = new Matrix();
     private Bitmap mResourcesBitmap;
-    private Bitmap mDisplayBitmap;
     private Bitmap mMaskLayerBitmap;
 
     private GestureDetector mGestureDetector;
@@ -99,7 +99,7 @@ public class EditPicView extends View {
         typedArray.recycle();
 
         mScale = getBitmapScale(mResourcesBitmap);
-        mDisplayBitmap = decodeBitmap(mResourcesBitmap, mScale);
+        setMatrixScle();
 
         setClickable(true);
 
@@ -127,6 +127,11 @@ public class EditPicView extends View {
         });
     }
 
+    private void setMatrixScle() {
+        mMtrix.reset();
+        mMtrix.postScale(mScale, mScale, 0.5f, 0.5f);
+    }
+
     private float getBitmapScale(Bitmap bitmap) {
         int resWidth = bitmap.getWidth();
         int resHeight = bitmap.getHeight();
@@ -138,23 +143,23 @@ public class EditPicView extends View {
             zoom = resWidth / targetSize;
         else
             zoom = resHeight / targetSize;
-        return zoom;
+        return 1/zoom;
     }
 
-    private Bitmap decodeBitmap(Bitmap bitmap, float scale) {
-        if (bitmap == null) return null;
-        int resWidth = bitmap.getWidth();
-        int resHeight = bitmap.getHeight();
-
+//    private Bitmap decodeBitmap(Bitmap bitmap, float scale) {
+//        if (bitmap == null) return null;
+//        int resWidth = bitmap.getWidth();
+//        int resHeight = bitmap.getHeight();
+//
 //        int outWidth = (int) (resWidth / zoom);
 //        int outHeight = (int) (resHeight / zoom);
-
-        Matrix matrix = new Matrix();
-        matrix.setScale(1 / scale, 1 / scale, 0.5f, 0.5f);
-
+//
+//        Matrix matrix = new Matrix();
+//        matrix.setScale(1 / scale, 1 / scale, 0.5f, 0.5f);
+//
 //        return ThumbnailUtils.extractThumbnail(bitmap, outWidth, outHeight);
-        return Bitmap.createBitmap(bitmap, 0, 0, resWidth, resHeight, matrix, false);
-    }
+//        return Bitmap.createBitmap(bitmap, 0, 0, resWidth, resHeight, matrix, false);
+//    }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -183,16 +188,25 @@ public class EditPicView extends View {
 
             mCirclePointF.set(cx-mCropRadius, cy-mCropRadius);
 
-            if (mDisplayBitmap.getHeight() == mCropRadius) {
-                left = (width - mDisplayBitmap.getWidth()) / 2;
+            float [] value = new float[9];
+            mMtrix.getValues(value);
+            float sx = value[Matrix.MSCALE_X];
+            float sy = value[Matrix.MSCALE_Y];
+            Log.d(TAG, "createMaskLayer: Scale --> " + sx);
+
+            float sh = mResourcesBitmap.getHeight() * sx;
+            float sw = mResourcesBitmap.getWidth() * sy;
+
+            if (sh == mCropRadius) {
+                left = (width - Math.round(sw)) / 2;
                 top = (height - mCropRadius*2) / 2;
                 maxDragDistY = 0;
-                maxDragDistX = mDisplayBitmap.getWidth() - mCropRadius*2;
+                maxDragDistX = Math.round(sw) - mCropRadius*2;
             } else {
                 left = (width - mCropRadius*2) / 2;
-                top = (height - mDisplayBitmap.getHeight()) / 2;
+                top = (height - Math.round(sh)) / 2;
                 maxDragDistX = 0;
-                maxDragDistY = mDisplayBitmap.getHeight() - mCropRadius*2;
+                maxDragDistY = Math.round(sh) - mCropRadius*2;
             }
         }
     }
@@ -202,11 +216,12 @@ public class EditPicView extends View {
         super.draw(canvas);
         if (mMaskLayerBitmap != null) {
             mPaint_01.setAntiAlias(true);
-            canvas.drawBitmap(mDisplayBitmap, left, top, mPaint_01);
+            canvas.translate(left, top);
+            canvas.drawBitmap(mResourcesBitmap, mMtrix, mPaint_01);
             canvas.save();
 
             mPaint_02.setAntiAlias(true);
-            canvas.drawBitmap(mMaskLayerBitmap, 0 , 0, mPaint_02);
+            canvas.drawBitmap(mMaskLayerBitmap, -left , -top, mPaint_02);
         }
 
     }
@@ -220,6 +235,15 @@ public class EditPicView extends View {
                 break;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_CANCEL:
+                float [] value = new float[9];
+                mMtrix.getValues(value);
+                float sx = value[Matrix.MSCALE_X];
+                float sy = value[Matrix.MSCALE_Y];
+
+                float sh = mResourcesBitmap.getHeight() * sx;
+                float sw = mResourcesBitmap.getWidth() * sy;
+                maxDragDistX = Math.round(sw) - mCropRadius*2;
+                maxDragDistY = Math.round(sh) - mCropRadius*2;
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (mBitmapActionMode == ACTION_MODE_DRAG) {
@@ -243,24 +267,27 @@ public class EditPicView extends View {
         float moveDist = distance(event);
 
         if (moveDist > 10.0f) {
-            float scale = moveDist / mStartPointerDis;
-            mStartPointerDis = moveDist;
-            PointF center = getCenterBitmap(event);
+            float scale = (moveDist / mStartPointerDis);
+            Log.d(TAG, "startZoom: scale_2 --> " + scale);
+
+            float [] value = new float[9];
+            mMtrix.getValues(value);
+            scale *= value[Matrix.MSCALE_X];
+
+            Log.d(TAG, "startZoom: scale_1 --> " + scale);
+
+            if (scale <= getBitmapScale(mResourcesBitmap)) {
+                scale = getBitmapScale(mResourcesBitmap);
+            } else if (scale >= MAX_ZOOM) {
+                scale = MAX_ZOOM;
+            } else {
+
+            }
+            Log.d(TAG, "startZoom: scale --> " + scale);
+            mMtrix.reset();
+            mMtrix.setScale(scale, scale);
+            invalidate();
         }
-
-    }
-
-    private PointF getCenterBitmap(MotionEvent event) {
-        float cx = (event.getX(0) + event.getX(1)) / 2.0f;
-        float cy = (event.getY(0) + event.getY(1)) / 2.0f;
-
-        if (cx < top) {
-            cx = top;
-        } else if (cx > top + mDisplayBitmap.getHeight()) {
-            cx = top + mDisplayBitmap.getHeight();
-        }
-
-        return new PointF(cx, cy);
     }
 
     private float distance(MotionEvent event) {
