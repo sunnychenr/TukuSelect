@@ -268,24 +268,32 @@ public class EditPicView extends View {
 
         if (moveDist > 10.0f) {
             float scale = (moveDist / mStartPointerDis);
-            Log.d(TAG, "startZoom: scale_2 --> " + scale);
 
             float [] value = new float[9];
             mMtrix.getValues(value);
             scale *= value[Matrix.MSCALE_X];
 
-            Log.d(TAG, "startZoom: scale_1 --> " + scale);
-
             if (scale <= getBitmapScale(mResourcesBitmap)) {
                 scale = getBitmapScale(mResourcesBitmap);
             } else if (scale >= MAX_ZOOM) {
                 scale = MAX_ZOOM;
-            } else {
-
             }
-            Log.d(TAG, "startZoom: scale --> " + scale);
+
+            int targetWidth = Math.round(mResourcesBitmap.getWidth() * scale);
+            int targetHeight = Math.round(mResourcesBitmap.getHeight() * scale);
+
+            int maxScaleX = Math.round(mCirclePointF.x) - targetWidth + mCropRadius*2;
+            if (left <= maxScaleX) {
+                left = maxScaleX;
+            }
+            int maxScaleY = Math.round(mCirclePointF.y) - targetHeight + mCropRadius*2;
+            if (maxScaleY >= top) {
+                top = maxScaleY;
+            }
+
             mMtrix.reset();
             mMtrix.setScale(scale, scale);
+            mStartPointerDis = moveDist;
             invalidate();
         }
     }
@@ -324,6 +332,11 @@ public class EditPicView extends View {
 
         mDownPointF.set(moveX, moveY);
         invalidate();
+    }
+
+    public Bitmap getCustomPhoto () {
+
+        return null;
     }
 
 
